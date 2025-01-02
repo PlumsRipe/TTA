@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" autoUpload="Always" serverName="tjut_hanlei@59.67.149.80:3000 password" remoteFilesAllowedToDisappearOnAutoupload="false" autoUploadExternalChanges="true">
+    <serverData>
+      <paths name="tjut_hanlei@59.67.149.80:3000 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/OWTTT_3000" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="tjut_m@59.67.149.80:3001">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/OWTTT" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+    <option name="myAutoUpload" value="ALWAYS" />
+  </component>
+</project>

@@ -1,0 +1,17 @@
+MODEL:
+  ADAPTATION: norm_test
+  ARCH: resnet50
+TEST:
+  BATCH_SIZE: 128
+CORRUPTION:
+  DATASET: domainnet126
+  SEVERITY:
+  - 5
+  TYPE:
+    - clipart
+    - painting
+    - sketch
+#CKPT_PATH: "./ckpt/domainnet126/best_clipart_2022.pth"
+#CKPT_PATH: "./ckpt/domainnet126/best_paintinf_2022.pth"
+CKPT_PATH: "./ckpt/domainnet126/best_real_2022.pth"
+#CKPT_PATH: "./ckpt/domainnet126/best_sketch_2022.pth"

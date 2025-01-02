@@ -1,0 +1,35 @@
+CORRUPTION:
+  DATASET: domainnet126
+  SEVERITY:
+    - 5
+#  TYPE:
+#    - clipart
+#    - painting
+#    - sketch
+#  TYPE:
+#    - real
+#    - painting
+#    - sketch
+#  TYPE:
+#    - real
+#    - clipart
+#    - sketch
+#  TYPE:
+#    - real
+#    - clipart
+#    - painting
+MODEL:
+  ADAPTATION: rottamodify
+  ARCH: resnet50
+OPTIM:
+  BETA: 0.9
+  LR: 0.0003
+  METHOD: Adam
+  STEPS: 1
+  WD: 0.0
+TEST:
+  BATCH_SIZE: 64
+#CKPT_PATH: "./ckpt/domainnet126/best_real_2022.pth"
+CKPT_PATH: "./ckpt/domainnet126/best_clipart_2022.pth"
+#CKPT_PATH: "./ckpt/domainnet126/best_painting_2022.pth"
+#CKPT_PATH: "./ckpt/domainnet126/best_sketch_2022.pth"
