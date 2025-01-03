@@ -11,8 +11,10 @@ python OURS.py \
 	--strong_OOD ${STRONG_OOD} \
 	--resume ./results/cifar10_joint_resnet50 \
 	--corruption ${CORRUPT} \
+	--batch_size 256 \
 	--lr 0.01 \
-	--delta 0.1 \
 	--da_scale 1 \
-	--ce_scale 0.2
+	--ce_scale 0.1 \
+	--BN_scale 0.3
+	
 

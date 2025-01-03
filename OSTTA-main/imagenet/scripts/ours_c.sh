@@ -11,7 +11,8 @@ python /data/tjut_m/OWTTT/imagenet/OURS.py \
 	--dataroot ./data \
 	--strong_OOD ${STRONG_OOD} \
 	--corruption ${CORRUPT} \
+	--batch_size 128 \
 	--lr 0.001 \
-	--delta 0.1 \
+	--da_scale 0.1 \
 	--ce_scale 0.05 \
-	--da_scale 0.1
+	--BN_scale 0.3

@@ -1,2 +1,0 @@
-# TTA
-Test-Time Adaptation

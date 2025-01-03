@@ -1,6 +1,6 @@
-# OWTTT on CIFAR10-C/100-C
+# Our on CIFAR10-C/100-C
 
-Ours method and the baseline method TEST (direct test without adaptation) on CIFAR-10-C/100-C under common corruptions or natural shifts. Our implementation is based on [repo](https://github.com/Gorilla-Lab-SCUT/TTAC/tree/master/cifar) and therefore requires some similar preparation processes.
+Ours method on CIFAR-10-C/100-C under common corruptions or natural shifts. Our implementation is based on [repo](https://github.com/Yushu-Li/OWTTT) and therefore requires some similar preparation processes.
 
 ### Requirements
 
@@ -36,69 +36,55 @@ gdown https://drive.google.com/uc?id=1-8KNUXXVzJIPvao-GxMp2DiArYU9NBRs && cd ../
 
 These models are obtained by training on the clean CIFAR10/100 images using semi-supervised SimCLR.
 
-### Open-World Test-Time Training:
+### Open-Set Test-Time Adaptation:
 
-We present our method and the baseline method TEST (direct test without adaptation) on CIFAR10-C/100-C.
+We present our method on CIFAR10-C/100-C.
 
-- run OURS method or the baeline method TEST on CIFAR10-C under the OWTTT protocol.
+- run OURS method on CIFAR10-C under the OWTTT protocol.
 
   ```
-  # OURS: 
   bash scripts/ours_cifar10.sh "corruption_type" "strong_ood_type" 
-
-  # TEST: 
-  bash scripts/test_cifar10.sh "corruption_type" "strong_ood_type" 
   ```
 
-  Where "corruption_type" is the corruption type in CIFAR10-C, and "strong_ood_type" is the strong OOD type in [noise, MNIST, SVHN, Tiny, cifar100].
-
-  For example, to run OURS or TEST on CIFAR10-C under the snow corruption with MNIST as strong OOD, we can use the following command:
+  Where "corruption_type" is the corruption type in CIFAR10-C, and "strong_ood_type" is the strong OOD type in [noise, MNIST, SVHN, Tiny].
+  
+  For example, to run OURS on CIFAR10-C under the snow corruption with MNIST as strong OOD, we can use the following command:
 
   ```
-  # OURS:
   bash scripts/ours_cifar10.sh snow MNIST 
-
-  # TEST:
-  bash scripts/test_cifar10.sh snow MNIST
   ```
 
   The following results are yielded by the above scripts (%) under the snow corruption, and with MNIST as strong OOD:
 
 
-  | Method | ACC_S | ACC_N | ACC_H |
-  | :------: | :-----: | :-----: | :-----: |
-  |  TEST  | 66.36 | 91.56 | 76.95 |
-  |  OURS  | 84.05 | 97.46 | 90.26 |
-- run OURS method or the baeline method TEST on CIFAR100-C under the OWTTT protocol.
+| Method | ACC_S | ACC_N | ACC_H |
+| :------: | :-----: | :-----: | :-----: |
+|  TEST  | 66.4 | 91.6 | 77.0 |
+|  OWTTT  | 84.1 | 97.5 | 90.3 |
+| Ours | 85.5 | 98.5 | 91.5 |
+- run OURS method on CIFAR100-C under the OWTTT protocol.
 
   ```
-  # OURS: 
   bash scripts/ours_cifar100.sh "corruption_type" "strong_ood_type" 
-
-  # TEST: 
-  bash scripts/test_cifar100.sh "corruption_type" "strong_ood_type" 
   ```
 
-  Where "corruption_type" is the corruption type in CIFAR100-C, and "strong_ood_type" is the strong OOD type in [noise, MNIST, SVHN, Tiny, cifar10].
-
-  For example, to run OURS or TEST on CIFAR100-C under the snow corruption with MNIST as strong OOD, we can use the following command:
+  Where "corruption_type" is the corruption type in CIFAR100-C, and "strong_ood_type" is the strong OOD type in [noise, MNIST, SVHN, Tiny].
+  
+  For example, to run OURS on CIFAR100-C under the snow corruption with MNIST as strong OOD, we can use the following command:
 
   ```
-  # OURS:
   bash scripts/ours_cifar100.sh snow MNIST 
-
-  # TEST:
-  bash scripts/test_cifar100.sh snow MNIST
   ```
 
   The following results are yielded by the above scripts (%) under the snow corruption, and with MNIST as strong OOD:
 
 
-  | Method | ACC_S | ACC_N | ACC_H |
-  | :------: | :-----: | :-----: | :-----: |
-  |  TEST  | 29.2 | 53.27 | 37.72 |
-  |  OURS  | 44.78 | 93.56 | 60.57 |
+| Method | ACC_S | ACC_N | ACC_H |
+| :------: | :-----: | :-----: | :-----: |
+|  TEST  | 29.2 | 53.3 | 37.7 |
+|  OWTTT  | 44.8 | 93.6 | 60.6 |
+| Ours | 48.9 | 96.7 | 64.9 |
 
 ### Acknowledgements
 
-Our code is built upon the public code of the [TTAC](https://github.com/Gorilla-Lab-SCUT/TTAC/tree/master/cifar).
+Our code is built upon the public code of the [OWTTT](https://github.com/Yushu-Li/OWTTT).

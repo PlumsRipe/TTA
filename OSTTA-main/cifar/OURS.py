@@ -1,3 +1,6 @@
+"""net.head.fc.weight.data替换weak_prototypes后计算cosine + BN_Calibrate"""
+
+from utils.RMT import *
 import argparse
 import torch
 import torch.optim as optim
@@ -12,17 +15,18 @@ import copy
 import random
 import numpy as np
 from sklearn.decomposition import PCA
-
+from utils.augmentation import get_tta_transforms
 from utils.offline import *
 from torch import nn
 import torch.nn.functional as F
 # ----------------------------------
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 
 # @torch.jit.script
 def softmax_entropy(x, dim=1):
     """Entropy of softmax distribution from logits."""
     return -(x.softmax(dim) * x.log_softmax(dim)).sum(dim)
+
 
 
 def compute_os_variance(os, th):
@@ -64,7 +68,7 @@ def compute_prototypes(features, labels, num_classes):
 
 
 class Prototype_Pool(nn.Module):
-    
+
     """
     Prototype pool containing strong OOD prototypes.
 
@@ -73,11 +77,11 @@ class Prototype_Pool(nn.Module):
         forward: Method to farward pass, return the cosine similarity with strong OOD prototypes.
         update_pool: Method to append and delete strong OOD prototypes.
     """
-    
-    
+
+
     def __init__(self, delta=0.1, class_num=10, max=100):
         super(Prototype_Pool, self).__init__()
-        
+
         self.class_num=class_num
         self.max_length = max
         self.flag = 0
@@ -85,19 +89,19 @@ class Prototype_Pool(nn.Module):
 
 
     def forward(self, x, all=False):
-        
+
         # if the flag is 0, the prototype pool is empty, return None.
         if not self.flag:
             return None
-        
+
         # compute the cosine similarity between the features and the strong OOD prototypes.
         out = torch.mm(x, self.memory.t())
-        
+
         if all==True:
             # if all is True, return the cosine similarity with all the strong OOD prototypes.
             return out
         else:
-            # if all is False, return the cosine similarity with the nearest strong OOD prototype. 
+            # if all is False, return the cosine similarity with the nearest strong OOD prototype.
             return torch.max(out/(self.delta),dim=1)[0].unsqueeze(1)
 
 
@@ -120,37 +124,32 @@ class Prototype_Pool(nn.Module):
 def append_prototypes(pool, feat_ext, logit, ts, ts_pro):
     """
     Append strong OOD prototypes to the prototype pool.
-
     Parameters:
         pool : Prototype pool.
         feat_ext : Normalized features of the input images.
         logit : Cosine similarity between the features and the weak OOD prototypes.
         ts : Threshold to separate weak and strong OOD samples.
         ts_pro : Threshold to append strong OOD prototypes.
-
     """
     added_list=[]
     update = 1
-
     while update:
         feat_mat = pool(F.normalize(feat_ext),all=True)
-        if  not feat_mat==None:
+        if not feat_mat == None:  # <==> feat_mat != None
             new_logit = torch.cat([logit, feat_mat], 1)
         else:
             new_logit = logit
 
         r_i_pro, _ = new_logit.max(dim=-1)
-
         r_i, _ = logit.max(dim=-1)
 
         if added_list!=[]:
             for add in added_list:
                 # if added_list is not empty, set the cosine similarity between the added features and the strong OOD prototypes to 1, to avoid the added features to be appended to the prototype pool again.
-                r_i[add]=1
-        min_logit , min_index = r_i.min(dim=0)
+                r_i[add] = 1
 
-
-        if (1-min_logit) > ts :
+        min_logit, min_index = r_i.min(dim=0)
+        if (1-min_logit) > ts :  # 是否属于strong_OOD
             # if the cosine similarity between the feature and the weak OOD prototypes is less than the threshold ts, the feature is a strong OOD sample.
             added_list.append(min_index)
             if (1-r_i_pro[min_index]) > ts_pro:
@@ -163,69 +162,84 @@ def append_prototypes(pool, feat_ext, logit, ts, ts_pro):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--strong_ratio', default=1, type=float)
-parser.add_argument('--dataroot', default="/home/tjut_hanlei/OWTTT_3000/cifar/data", help='path to dataset')
+parser.add_argument('--dataroot', default="./data", help='path to dataset')
 parser.add_argument('--workers', default=4, type=int)
 parser.add_argument('--delta', default=0.1, type=float)
 
 """********************************************************************************************************************************************"""
 parser.add_argument('--dataset', default='cifar10OOD')
 parser.add_argument('--strong_OOD', default='MNIST')  # [noise, MNIST, SVHN, Tiny, cifar100]
-parser.add_argument('--resume', default='/home/tjut_hanlei/OWTTT_3000/cifar/results/cifar10_joint_resnet50/', help='directory of pretrained model')
-parser.add_argument('--normal', default=False, help='Is conduct normal training (without extracting features from the source domain data)?')
-parser.add_argument('--protos_is_train', default=True, type=bool, help="is use trainable protos")
+parser.add_argument('--resume', default='/data/tjut_m/OWTTT/cifar/results/cifar10_joint_resnet50/', help='directory of pretrained model')
+
+parser.add_argument('--normal', default=True, help='Is conduct normal training (without extracting features from the source domain data)?')
+# parser.add_argument('--normal', default=False, help='Is conduct normal training (without extracting features from the source domain data)?')
+
+# parser.add_argument('--contrastive_loss', default=True, type=bool)
+parser.add_argument('--contrastive_loss', default=False, type=bool)
+
+parser.add_argument('--protos_is_train', default=True, type=bool, help= "is use trainable protos")
 # parser.add_argument('--protos_is_train', default=False, type=bool, help= "is use trainable protos")
-parser.add_argument('--batch_size', default=32, type=int)
-parser.add_argument('--lr', default=1e-2, type=float)  # 若需将lr调大时可以适当将loss_scale调小
-parser.add_argument('--protos_lr', default=1e-2, type=float)  # 若需将lr调大时可以适当将loss_scale调小
+
+
+parser.add_argument('--batch_size', default=256, type=int)
+parser.add_argument('--lr', default=0.01, type=float)  # 若需将lr调大时可以适当将loss_scale调小
 parser.add_argument('--ce_scale', default=0.1, type=float, help='cross entropy loss scale')  # 交叉熵系数
 parser.add_argument('--da_scale', default=1, type=float, help='distribution alignment loss scale')  # 分布对齐系数
-# parser.add_argument('--ewc_scale', default=0, type=float, help='EWC loss scale')  # ewc系数
-# parser.add_argument('--c_scale', default=0., type=float, help='contrastive learning loss scale')  # 对比学习系数
-# parser.add_argument('--temperature', default=0.07, type=float, help='contrastive learning temperature')  # 对比学习温度系数
+parser.add_argument('--co_scale', default=3, type=float, help='contrastive loss scale')
+parser.add_argument('--kl', default=1, type=float)
+parser.add_argument('--BN_scale', default=0.3, type=float)
 
-parser.add_argument('--N_m', default=32, type=int, help='queue length')
-parser.add_argument('--max_prototypes', default=100, type=int)
+
 """********************************************************************************************************************************************"""
 
+parser.add_argument('--N_m', default=512, type=int, help='queue length')
+parser.add_argument('--max_prototypes', default=100, type=int)
 parser.add_argument('--outf', help='folder to output log')
-parser.add_argument('--save', action='store_true', default=True, help='save the model final checkpoint')
+parser.add_argument('--save', action='store_true', default=False, help='save the model final checkpoint')
 parser.add_argument('--level', default=5, type=int)
-parser.add_argument('--corruption', default='snow')
+parser.add_argument('--corruption', default='snow')  # snow  gaussian_noise
 parser.add_argument('--model', default='resnet50', help='resnet50')
 parser.add_argument('--seed', default=0, type=int)
 
+
 # ----------- Args and Dataloader ------------
 args = parser.parse_args()
-args.outf = f'/home/tjut_hanlei/OWTTT_3000/cifar/results/log/{args.dataset}'
+args.outf = f'/data/tjut_m/OWTTT/cifar/results/log/{args.dataset}'
 print(args)
 print('\n')
+
+torch.manual_seed(args.seed)
+random.seed(args.seed)
+np.random.seed(args.seed)
+torch.cuda.manual_seed(args.seed)
+torch.cuda.manual_seed_all(args.seed)
+
 
 class_num = 10 if args.dataset == 'cifar10OOD' else 100
 
 net, ext, head, ssh, classifier = build_resnet50(args)  # net = ext + classifier;    ssh = ext(backbone) + head(projection head)
 
 teset, _ = prepare_test_data(args)
-teloader = data.DataLoader(teset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers,
-                           worker_init_fn=seed_worker, pin_memory=True, drop_last=False)
-
-pool = Prototype_Pool(args.delta, class_num=class_num, max=args.max_prototypes).cuda()
+teloader = data.DataLoader(teset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers, worker_init_fn=seed_worker, pin_memory=True, drop_last=False)
+if args.dataset == "cifar100OOD" and args.strong_OOD == "Tiny":
+    args.co_scale = 5
+pool = Prototype_Pool(args.delta,class_num=class_num,max = args.max_prototypes).cuda()
 
 # -------------------------------
-print('Resuming from %s...' % (args.resume))
+print('Resuming from %s...' %(args.resume))
 
 load_resnet50(net, head, args)
+
+
 
 # ----------- Offline Feature Summarization ------------
 args_align = copy.deepcopy(args)
 
 _, offlineloader = prepare_train_data(args_align)
-ext_src_mu, ext_src_cov, ssh_src_mu, ssh_src_cov, mu_src_ext, cov_src_ext, mu_src_ssh, cov_src_ssh = offline(args,
-                                                                                                             offlineloader,
-                                                                                                             ext,
-                                                                                                             classifier,
-                                                                                                             class_num)
+ext_src_mu, ext_src_cov, ssh_src_mu, ssh_src_cov, mu_src_ext, cov_src_ext, mu_src_ssh, cov_src_ssh = offline(args,offlineloader, ext, classifier, class_num)
 #    原型       无用         无用       无用          分布对齐     分布对齐       无用       无用
 ext_src_mu = torch.stack(ext_src_mu)
+
 
 ema_ext_total_mu = torch.zeros(2048).float()
 ema_ext_total_cov = torch.zeros(2048, 2048).float()
@@ -237,93 +251,100 @@ args.ts_pro = 0.0
 bias = cov_src_ext.max().item() / 30.
 template_ext_cov = torch.eye(2048).cuda() * bias
 
-torch.manual_seed(args.seed)
-random.seed(args.seed)
-np.random.seed(args.seed)
-torch.cuda.manual_seed(args.seed)
-torch.cuda.manual_seed_all(args.seed)
 
 # ----------- Open-World Test-time Training ------------
 
 correct = []
-unseen_correct = []
-all_correct = []
+unseen_correct= []
+all_correct=[]
 cumulative_error = []
 num_open = 0
-predicted_list = []
-label_list = []
+predicted_list=[]
+label_list=[]
 
 os_training_queue = []
 os_inference_queue = []
 queue_length = args.N_m
 params_group = []
 
+
+
+feat_stack = [[] for i in range(class_num + 1)]
+
 print('\n-----Test-Time Training with OURS-----')
+print('\n--------------------------------------')
 print("dataset:", args.dataset)
 print("strong_OOD:", args.strong_OOD)
 print("protos_is_train:", args.protos_is_train)
+# print("contrastive_loss:", args.contrastive_loss)
+print('----------------------------------------')
 
-"""初始化可训练的protos"""
-if args.protos_is_train:
-    weak_prototype = weak_prototype.cpu()
-
-    # embedding = nn.Linear(weak_prototype.shape[0], weak_prototype.shape[1], bias=False)
-    # embedding.weight.data = weak_prototype.data
-    # embedding = torch.nn.Parameter(torch.rand(weak_prototype.shape[0], weak_prototype.shape[1]))
-    embedding = torch.nn.Embedding(weak_prototype.shape[0], weak_prototype.shape[1], scale_grad_by_freq=True, _weight=weak_prototype.data.cuda())
-    # embedding.data = weak_prototype.data.cuda()
-    # embedding.cuda()
-
-for k, v in ext.named_parameters():
-    params_group += [{'params': v, 'lr': args.lr}]
-"""将可训练的protos的参数添加至优化器"""
-if args.protos_is_train:
-    # for k, v in embedding.named_parameters():
-    #     params_group += [{'params': v, 'lr': 1e-5}]
-    # pass
-    params_group += [{'params': embedding.weight, 'lr': args.protos_lr}]
-    # optimizer_emb = torch.optim.SGD(params_group_emb, momentum=0.9, nesterov=True)
-optimizer = torch.optim.SGD(params_group, momentum=0.9, nesterov=True)
+net.head.fc.weight.data = weak_prototype
+optimizer = torch.optim.SGD(net.parameters(), args.lr, momentum=0.9, nesterov=True)
 
 
-""""""
-feat_stack = [[] for i in range(class_num+1)]
+if args.contrastive_loss:
+    projection_dim = 128
+    num_channels = weak_prototype.shape[-1]
+    projector = nn.Sequential(nn.Linear(num_channels, projection_dim),
+                              nn.ReLU(),
+                              nn.Linear(projection_dim, projection_dim)).cuda()
+    optimizer.add_param_group({'params': projector.parameters(), 'lr': optimizer.param_groups[0]["lr"]})
 
+
+
+
+# Dkl_loss = True
+Dkl_loss = False
+"""获取BN层统计量"""
+if Dkl_loss:
+    BN_statistics = []
+    for name, module in net.ext.named_modules():
+        if isinstance(module, torch.nn.BatchNorm2d):
+            BN_statistics.append([module.running_mean, module.running_var])
+
+
+beta_pre = 0.1
+BN_Calibrate = True
+# BN_Calibrate = False
+if BN_Calibrate:
+    running_mean, running_var = list(net.ext.children())[1].running_mean, \
+                                list(net.ext.children())[1].running_var  # cifar10
 
 for te_idx, (te_inputs, te_labels) in enumerate(teloader):
-    classifier.eval()
-    ext.eval()
+    net.eval()
     optimizer.zero_grad()
     loss = torch.tensor(0.).cuda()
 
-    if isinstance(te_inputs, list):
+    net.head.fc.weight.data = F.normalize(net.head.fc.weight.data)
+    if isinstance(te_inputs,list):
         inputs = te_inputs[0].cuda()
     else:
         inputs = te_inputs.cuda()
-    feat_ext = ext(inputs)
+    feat_ext = net.ext(inputs)
+
 
     # logits of the input images, used to compute the cosine similarity between the features and the weak OOD prototypes.
     if args.protos_is_train:
-        logit = torch.mm(F.normalize(feat_ext), embedding.weight.t()) / args.delta
-        # logit = torch.mm(F.normalize(feat_ext), embedding.t()) / args.delta
+        logit = torch.mm(F.normalize(feat_ext), net.head.fc.weight.t()) / args.delta
     else:
         logit = torch.mm(F.normalize(feat_ext), weak_prototype.t()) / args.delta
 
     # compute the cosine similarity between the features and the strong OOD prototypes.
     feat_mat = pool(F.normalize(feat_ext))
-    if not feat_mat == None:
+    if not feat_mat == None:  # <==> feat_mat != None
         new_logit = torch.cat([logit, feat_mat], 1)
     else:
         new_logit = logit
 
-    pro, predicted = new_logit[:, :class_num].max(dim=-1)
+    pro, predicted = new_logit[:,:class_num].max(dim=-1)
 
     # compute the ood score of the input images.
-    ood_score = 1 - pro * args.delta
+    ood_score = 1-pro*args.delta
     os_training_queue.extend(ood_score.detach().cpu().tolist())
     os_training_queue = os_training_queue[-queue_length:]
 
-    threshold_range = np.arange(0, 1, 0.01)
+    threshold_range = np.arange(0,1,0.01)
     criterias = [compute_os_variance(np.array(os_training_queue), th) for th in threshold_range]
 
     # best threshold is the one minimizing the variance of the two classes
@@ -333,28 +354,53 @@ for te_idx, (te_inputs, te_labels) in enumerate(teloader):
     unseen_mask = (ood_score >= args.ts)
     r_i, pseudo_labels = new_logit.max(dim=-1)
 
-    if unseen_mask.sum().item() != 0:
-        in_score = 1 - r_i * args.delta
-        threshold_range = np.arange(0, 1, 0.01)
+    if unseen_mask.sum().item()!=0:
+        #compute ts_pro to append new strong OOD prototypes to the prototype pool.
+        # min_logit, min_index = r_i.min(dim=0)
+        in_score = 1-r_i*args.delta
+        threshold_range = np.arange(0,1,0.01)
         criterias = [compute_os_variance(in_score[unseen_mask].detach().cpu().numpy(), th) for th in threshold_range]
         best_threshold = threshold_range[np.argmin(criterias)]
         args.ts_pro = best_threshold  # args.pro只是用于添加扩展原型的
 
-        append_prototypes(pool, feat_ext, logit.detach() * args.delta, args.ts, args.ts_pro)
+        append_prototypes(pool, feat_ext, logit.detach()*args.delta, args.ts, args.ts_pro)  # logit:x与源域protos的logit,  unseen中的阈值
     len_memory = len(new_logit[0])
 
-    if len_memory != class_num:
-        if seen_mask.sum().item() != 0:
-            pseudo_labels[seen_mask] = new_logit[seen_mask, :class_num].softmax(dim=-1).max(dim=-1)[1]
-        if unseen_mask.sum().item() != 0:
+    if len_memory!=class_num:
+        if seen_mask.sum().item()!=0:
+            pseudo_labels[seen_mask] = new_logit[seen_mask,:class_num].softmax(dim=-1).max(dim=-1)[1]
+        if unseen_mask.sum().item()!=0:
             pseudo_labels[unseen_mask] = class_num
     else:
-        pseudo_labels = new_logit[seen_mask, :class_num].softmax(dim=-1).max(dim=-1)[1]
+        pseudo_labels = new_logit[seen_mask,:class_num].softmax(dim=-1).max(dim=-1)[1]
+
+
+
+    """BN_Calibrate"""
+    if BN_Calibrate:
+        embedding_extractor = torch.nn.Sequential(*list(net.ext.children())[:1])
+        embedding = embedding_extractor(inputs[seen_mask].cuda())
+        b_var, b_mean = torch.var_mean(embedding, dim=[0, 2, 3], unbiased=False, keepdim=False)
+        kl_distance_mean = 0.5 * F.kl_div(b_mean.softmax(dim=-1).log(), running_mean.softmax(dim=-1), reduction="sum") + \
+                           0.5 * F.kl_div(running_mean.softmax(dim=-1).log(), b_mean.softmax(dim=-1), reduction="sum")
+        kl_distance_var = 0.5 * F.kl_div(b_var.softmax(dim=-1).log(), running_var.softmax(dim=-1), reduction="sum") + \
+                          0.5 * F.kl_div(running_var.softmax(dim=-1).log(), b_var.softmax(dim=-1), reduction="sum")
+        kl_distance = (kl_distance_mean + kl_distance_var) / 2
+        beta_t = 1 - torch.exp(-args.BN_scale * kl_distance)
+        # beta_ema = 0.8 * beta_pre + 0.2 * beta_t
+        beta_ema = beta_t
+        for m in net.ext.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.momentum = beta_ema.detach().item()
+        # beta_pre = beta_ema
+
+
 
     # ------distribution alignment------
-    if seen_mask.sum().item() != 0:
-        ext.train()
-        feat_global = ext(inputs[seen_mask])
+    if seen_mask.sum().item()!=0:
+        net.ext.train()
+        feat_global = net.ext(inputs[seen_mask])
+
         # Global Gaussian
         b = feat_global.shape[0]
         ema_total_n += b  # ema_total_n：已看到的seen_mask样本数
@@ -362,37 +408,72 @@ for te_idx, (te_inputs, te_labels) in enumerate(teloader):
         delta_pre = (feat_global - ema_ext_total_mu.cuda())
         delta = alpha * delta_pre.sum(dim=0)
         tmp_mu = ema_ext_total_mu.cuda() + delta
-        tmp_cov = ema_ext_total_cov.cuda() + alpha * (delta_pre.t() @ delta_pre - b * ema_ext_total_cov.cuda()) - delta[:,None] @ delta[None,:]
+        tmp_cov = ema_ext_total_cov.cuda() + alpha * (delta_pre.t() @ delta_pre - b * ema_ext_total_cov.cuda()) - delta[:, None] @ delta[None, :]
         with torch.no_grad():
             ema_ext_total_mu = tmp_mu.detach().cpu()
             ema_ext_total_cov = tmp_cov.detach().cpu()
 
         source_domain = torch.distributions.MultivariateNormal(mu_src_ext, cov_src_ext + template_ext_cov)  # template_ext_cov：2048x2048的对角矩阵*bias（0.77）
         target_domain = torch.distributions.MultivariateNormal(tmp_mu, tmp_cov + template_ext_cov)
-        loss += args.da_scale * (torch.distributions.kl_divergence(source_domain, target_domain) + torch.distributions.kl_divergence(target_domain, source_domain)) * loss_scale
+        loss += args.da_scale*(torch.distributions.kl_divergence(source_domain, target_domain) +
+                               torch.distributions.kl_divergence(target_domain, source_domain)) * loss_scale
+
+    """Dkl_loss"""
+    if Dkl_loss:
+        Conv_statistics = [torch.var_mean(feature_list[i], dim=[0, 2, 3], unbiased=False, keepdim=False) for i in range(len(feature_list))]
+        kl_distance = 0
+        for i in range(len(feature_list)):
+            kl_distance_mean = 0.5 * F.kl_div(Conv_statistics[i][0].softmax(dim=-1).log(), BN_statistics[i][0].softmax(dim=-1), reduction="sum") + \
+                               0.5 * F.kl_div(BN_statistics[i][0].softmax(dim=-1).log(), Conv_statistics[i][0].softmax(dim=-1), reduction="sum")
+            kl_distance_var = 0.5 * F.kl_div(Conv_statistics[i][1].softmax(dim=-1).log(), BN_statistics[i][1].softmax(dim=-1), reduction="sum") + \
+                              0.5 * F.kl_div(BN_statistics[i][1].softmax(dim=-1).log(), Conv_statistics[i][1].softmax(dim=-1), reduction="sum")
+            kl_distance += (kl_distance_mean + kl_distance_var) / 2
+        loss += kl_distance * args.kl
+        feature_list.clear()
+        # 清理hook
+        for name, module in net.ext.named_modules():
+            if isinstance(module, torch.nn.Conv2d):
+                module._forward_pre_hooks.clear()
+                module._forward_hooks.clear()
+                module._backward_hooks.clear()
 
     # we only use 50% of samples with ood score far from τ∗ to perform prototype clustering for each batch
-    if len_memory != class_num and seen_mask.sum().item() != 0 and unseen_mask.sum().item() != 0:
+    if len_memory!=class_num and seen_mask.sum().item()!=0 and unseen_mask.sum().item()!=0:
         a, idx1 = torch.sort((ood_score[seen_mask]), descending=True)
-        filter_down = a[-int(seen_mask.sum().item() * (1 / 2))]
+        filter_down = a[-int(seen_mask.sum().item()*(1/2))]
         a, idx1 = torch.sort((ood_score[unseen_mask]), descending=True)
-        filter_up = a[int(unseen_mask.sum().item() * (1 / 2))]
+        filter_up= a[int(unseen_mask.sum().item()*(1/2))]
         for j in range(len(pseudo_labels)):
-            if ood_score[j] >= filter_down and seen_mask[j]:
-                seen_mask[j] = False
-            if ood_score[j] <= filter_up and unseen_mask[j]:
-                unseen_mask[j] = False
+            if ood_score[j] >=filter_down and seen_mask[j]:
+                seen_mask[j]=False
+            if ood_score[j] <=filter_up and unseen_mask[j]:
+                unseen_mask[j]=False
 
-
-        entropy_seen = softmax_entropy(new_logit[seen_mask, :class_num]).mean()
-        entropy_unseen = softmax_entropy(new_logit[unseen_mask]).mean()
-
-
-        if args.protos_is_train:
-            loss += args.ce_scale * (seen_mask.sum().item() / (seen_mask.sum().item() + unseen_mask.sum().item()) * entropy_seen
-                                     + unseen_mask.sum().item() / (seen_mask.sum().item() + unseen_mask.sum().item()) * entropy_unseen)
+        # 熵loss
+        if args.contrastive_loss:
+            entropy_unseen = softmax_entropy(new_logit[unseen_mask]).mean()
+            loss += args.ce_scale * (entropy_unseen)
         else:
+            entropy_seen = softmax_entropy(new_logit[seen_mask, :class_num]).mean()
+            entropy_unseen = softmax_entropy(new_logit[unseen_mask]).mean()
             loss += args.ce_scale * (entropy_seen + entropy_unseen) / 2
+
+        """对比loss"""
+        if args.contrastive_loss:
+            with torch.no_grad():
+                dist = F.cosine_similarity(
+                    x1=net.head.fc.weight.data.unsqueeze(1).repeat(1, feat_ext[seen_mask].shape[0], 1),
+                    x2=F.normalize(feat_ext[seen_mask]).view(1, feat_ext[seen_mask].shape[0], feat_ext[seen_mask].shape[1]).repeat(net.head.fc.weight.data.shape[0], 1, 1),
+                    dim=-1)
+                # for every test feature, get the nearest source prototype and derive the label
+                _, indices = dist.topk(1, largest=True, dim=0)
+                indices = indices.squeeze(0)
+
+            features = torch.cat([net.head.fc.weight.data.unsqueeze(1)[indices],
+                                  F.normalize(feat_ext[seen_mask]).view(feat_ext[seen_mask].shape[0], 1, feat_ext[seen_mask].shape[1]), ],
+                                 dim=1)
+            loss += args.co_scale * contrastive_loss(features=features, labels=None, projector=projector)
+
     try:
         loss.backward()
         optimizer.step()
@@ -400,34 +481,44 @@ for te_idx, (te_inputs, te_labels) in enumerate(teloader):
     except:
         print('can not backward')
     torch.cuda.empty_cache()
-    embedding.weight.data = F.normalize(embedding.weight.data)
+
+
+
     ####-------------------------- Test ----------------------------####
 
     with torch.no_grad():
 
-        ext.eval()
-        feat_ext = ext(inputs)  # b,2048
+        net.eval()
+        feat_ext = net.ext(inputs)  # b,2048
         if args.protos_is_train:
-            logit = torch.mm(F.normalize(feat_ext), embedding.weight.t()) / args.delta
-            # logit = torch.mm(F.normalize(feat_ext), embedding.t())/args.delta
+            logit = torch.mm(F.normalize(feat_ext), net.head.fc.weight.t()) / args.delta
         else:
             logit = torch.mm(F.normalize(feat_ext), weak_prototype.t()) / args.delta
+
         update = 1
 
         softmax_logit = logit.softmax(dim=-1)
         pro, predicted = softmax_logit.max(dim=-1)
 
-        ood_score, max_index = logit.max(1)
-        ood_score = 1 - ood_score * args.delta
+        ood_score, _ = logit.max(1)
+        ood_score = 1-ood_score*args.delta
         os_inference_queue.extend(ood_score.detach().cpu().tolist())
         os_inference_queue = os_inference_queue[-queue_length:]
 
-        threshold_range = np.arange(0, 1, 0.01)
+        threshold_range = np.arange(0,1,0.01)
         criterias = [compute_os_variance(np.array(os_inference_queue), th) for th in threshold_range]
         best_threshold = threshold_range[np.argmin(criterias)]
+        seen_mask = (ood_score <= best_threshold)
         unseen_mask = (ood_score > best_threshold)
-        args.ts = best_threshold
         predicted[unseen_mask] = class_num
+
+
+        """保存所有图像的特征，用于聚类可视化"""
+        for i in range(class_num+1):
+            mask = predicted == i
+            feat_stack[i].extend(feat_ext[mask, :])
+
+
 
         one = torch.ones_like(te_labels)*class_num
         false = torch.ones_like(te_labels)*-1
@@ -444,51 +535,24 @@ for te_idx, (te_inputs, te_labels) in enumerate(teloader):
         label_list.append(all_labels.long().cpu())
 
 
-        """更新protos"""
-        """每次用当batch的数据更新protos；用到目前为止的数据更新protos"""
-        # if args.protos_is_train:
-        #     feat_ext_stack = [[] for i in range(class_num)]
-        #     for label in predicted[seen_mask].unique():
-        #         label_mask = predicted[seen_mask] == label
-        #         feat_ext_stack[label].extend(feat_ext[seen_mask][label_mask, :])
-        #     ext_mu = []
-        #     for feat in feat_ext_stack:
-        #         if len(feat) != 0:
-        #             ext_mu.append(torch.stack(feat).mean(dim=0))
-        #         else:
-        #             print("No Update!!!")
-        #             ext_mu.append(torch.zeros(2048, dtype=torch.float32).cuda())
-        #     weak_prototype = 0.8 * weak_prototype + 0.2 * torch.stack(ext_mu)
-        #     # weak_prototype = torch.stack(ext_mu)
+    seen_acc = round(torch.cat(correct).numpy().sum() / (len(torch.cat(correct).numpy()) - num_open.numpy()), 4)  # 4:保留小数点后4位数字
+    unseen_acc = round(torch.cat(unseen_correct).numpy().sum() / num_open.numpy(), 4)
+    h_score = round((2*seen_acc*unseen_acc) / (seen_acc + unseen_acc), 4)
+    print('Batch:(', te_idx, '/', len(teloader), ')\tloss:', "%.2f" % loss.item(), '\t Cumulative Results: ACC_S:', seen_acc, '\tACC_N:', unseen_acc, '\tACC_H:', h_score)
+
+print('\nTest time training result:', ' ACC_S:', seen_acc, '\tACC_N:', unseen_acc, '\tACC_H:', h_score, '\n\n\n\n')
+torch.save(feat_stack, f"/data/tjut_m/OWTTT/cifar/results/cifar10_joint_resnet50/{args.strong_OOD}/ckpt_afterAdapt_Our.pth")
 
 
-    seen_acc = round(torch.cat(correct).numpy().sum() / (len(torch.cat(correct).numpy())-num_open.numpy()),4)  # 4:保留小数点后4位数字
-    unseen_acc = round(torch.cat(unseen_correct).numpy().sum() / num_open.numpy(),4)
-    h_score = round((2*seen_acc*unseen_acc) /  (seen_acc + unseen_acc),4)
-    print('Batch:(', te_idx,'/',len(teloader), ')\tloss:',"%.2f" % loss.item(),\
-        '\t Cumulative Results: ACC_S:', seen_acc,\
-        '\tACC_N:', unseen_acc,\
-        '\tACC_H:',h_score\
-        )
-
-
-print('\nTest time training result:',' ACC_S:', seen_acc,\
-        '\tACC_N:', unseen_acc,\
-        '\tACC_H:',h_score,'\n\n\n\n'\
-        )
-
-
-
-if args.outf != None:
-    my_makedir(args.outf)
-    with open (args.outf+'/results.txt','a') as f:
-        f.write(str(args)+'\n')
-        f.write(
-        'ACC_S:'+ str(seen_acc)+\
-            '\tACC_N:'+ str(unseen_acc)+\
-            '\tACC_H:'+str(h_score)+'\n\n\n\n'\
-        )
-    if args.save:
-        torch.save(weak_prototype, "/home/tjut_hanlei/OWTTT_3000/cifar/results/cifar10_joint_resnet50/protos_AfterTrain_OWTTT.pth")
-        torch.save(embedding.weight.data, "/home/tjut_hanlei/OWTTT_3000/cifar/results/cifar10_joint_resnet50/protos_AfterTrain_embedding.pth")
-        torch.save(ext.state_dict(), os.path.join(args.outf, 'final.pth'))
+# if args.outf != None:
+#     my_makedir(args.outf)
+#     with open (args.outf+'/results.txt','a') as f:
+#         f.write(str(args)+'\n')
+#         f.write('ACC_S:' + str(seen_acc) + '\tACC_N:' + str(unseen_acc) + '\tACC_H:'+ str(h_score) + '\n\n\n\n')
+#     if args.save:
+#         if args.dataset == 'cifar10OOD':
+#             torch.save(net.head.fc.weight.data, f"/data/tjut_m/OWTTT/cifar/results/cifar10_joint_resnet50/{args.strong_OOD}/protos_afterAdapt_Our.pth")
+#             torch.save(ext.state_dict(), f"/data/tjut_m/OWTTT/cifar/results/cifar10_joint_resnet50/{args.strong_OOD}/ckpt_afterAdapt_Our.pth")
+#         else:
+#             torch.save(net.head.fc.weight.data, f"/data/tjut_m/OWTTT/cifar/results/cifar100_joint_resnet50/{args.strong_OOD}/protos_afterAdapt_Our.pth")
+#             torch.save(ext.state_dict(), f"/data/tjut_m/OWTTT/cifar/results/cifar100_joint_resnet50/{args.strong_OOD}/ckpt_afterAdapt_Our.pth")
