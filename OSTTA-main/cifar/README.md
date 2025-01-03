@@ -56,12 +56,11 @@ We present our method on CIFAR10-C/100-C.
 
   The following results are yielded by the above scripts (%) under the snow corruption, and with MNIST as strong OOD:
 
-
-| Method | ACC_S | ACC_N | ACC_H |
-| :------: | :-----: | :-----: | :-----: |
-|  TEST  | 66.4 | 91.6 | 77.0 |
-|  OWTTT  | 84.1 | 97.5 | 90.3 |
-| Ours | 85.5 | 98.5 | 91.5 |
+  | Method | ACC_S | ACC_N | ACC_H |
+  | :------: | :-----: | :-----: | :-----: |
+  |  TEST  | 66.4 | 91.6 | 77.0 |
+  |  OWTTT  | 84.1 | 97.5 | 90.3 |
+  | Ours | 85.5 | 98.5 | 91.5 |
 - run OURS method on CIFAR100-C under the OWTTT protocol.
 
   ```
@@ -78,12 +77,11 @@ We present our method on CIFAR10-C/100-C.
 
   The following results are yielded by the above scripts (%) under the snow corruption, and with MNIST as strong OOD:
 
-
-| Method | ACC_S | ACC_N | ACC_H |
-| :------: | :-----: | :-----: | :-----: |
-|  TEST  | 29.2 | 53.3 | 37.7 |
-|  OWTTT  | 44.8 | 93.6 | 60.6 |
-| Ours | 48.9 | 96.7 | 64.9 |
+  | Method | ACC_S | ACC_N | ACC_H |
+  | :------: | :-----: | :-----: | :-----: |
+  |  TEST  | 29.2 | 53.3 | 37.7 |
+  |  OWTTT  | 44.8 | 93.6 | 60.6 |
+  | Ours | 48.9 | 96.7 | 64.9 |
 
 ### Acknowledgements
 
